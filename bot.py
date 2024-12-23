@@ -9,6 +9,7 @@ import pytz
 from flask import Flask
 import logging
 import threading
+import warnings
 
 # Set up logging
 logging.basicConfig(
@@ -16,6 +17,13 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# Development server warning
+warnings.warn(
+    "This is a development server. Do not use it in a production deployment. "
+    "Use a production WSGI server instead.",
+    RuntimeWarning
+)
 
 # Initialize Flask App
 app = Flask(__name__)
@@ -25,7 +33,11 @@ load_dotenv()
 
 # Current user and time information
 CURRENT_USER = 'oye-bobs'
-CURRENT_TIME = '2024-12-23 13:25:41'
+CURRENT_TIME = '2024-12-23 14:54:27'
+IS_DEVELOPMENT = True
+
+if IS_DEVELOPMENT:
+    logger.warning("Running in development mode - not recommended for production!")
 
 # Verify environment variables are loaded
 required_env_vars = [
@@ -53,7 +65,7 @@ except Exception as e:
     logger.error(f"Failed to initialize Twitter client: {e}")
     raise
 
-# Predefined facts
+  # Predefined facts
 facts = ["The movement emerged in the early 17th century through three manifestos: the Fama Fraternitatis, Confessio Fraternitatis, and the Chymical Wedding of Christian Rosenkreutz.",
     "The Rose Cross symbolizes both spiritual unfolding (the rose) and the sacrifice of physical existence (the cross).",
     "The rose represents divine love and the unfolding of consciousness, while the cross embodies earthly trials.",
@@ -146,21 +158,30 @@ def post_fact():
         return False
 
 def verify_credentials():
-    """Verify Twitter API credentials"""
+    """Verify Twitter API credentials without posting a tweet"""
     try:
-        test_tweet = f"Bot initialization by {CURRENT_USER} at {CURRENT_TIME} UTC"
-        client.create_tweet(text=test_tweet)
+        user = client.get_me()
         logger.info("Credentials verified successfully")
         return True
     except Exception as e:
         logger.error(f"Failed to verify credentials: {e}")
         return False
 
-# Schedule the task to run every hour
-schedule.every().hour.at(":00").do(post_fact)
+# Schedule tweets every 6 hours
+schedule.every(6).hours.do(post_fact)
 
-# Function to run the scheduled tasks
+def get_next_scheduled_times():
+    """Get the next 4 scheduled tweet times"""
+    now = datetime.now(pytz.UTC)
+    next_times = []
+    for i in range(4):
+        next_run = schedule.next_run()
+        if next_run:
+            next_times.append(next_run.strftime('%Y-%m-%d %H:%M:%S UTC'))
+    return next_times
+
 def run_schedule():
+    """Run scheduled tasks with error handling"""
     while True:
         try:
             schedule.run_pending()
@@ -172,19 +193,24 @@ def run_schedule():
 # Flask routes
 @app.route('/')
 def home():
-    last_run = schedule.next_run()
+    next_times = get_next_scheduled_times()
     return {
         "status": "running",
+        "environment": "development" if IS_DEVELOPMENT else "production",
         "bot_user": CURRENT_USER,
         "initialization_time": CURRENT_TIME,
-        "next_scheduled_tweet": last_run.strftime('%Y-%m-%d %H:%M:%S UTC') if last_run else "Unknown",
-        "current_time": datetime.now(pytz.UTC).strftime('%Y-%m-%d %H:%M:%S UTC')
+        "next_scheduled_tweets": next_times,
+        "current_time": datetime.now(pytz.UTC).strftime('%Y-%m-%d %H:%M:%S UTC'),
+        "schedule": "Every 6 hours",
+        "warning": "Development server - Not for production use" if IS_DEVELOPMENT else ""
     }
 
 @app.route('/test-tweet')
 def test_tweet():
+    """Send a test tweet"""
     try:
-        test_message = f"Test tweet from Rosicrucian Bot - Initiated by {CURRENT_USER} at {datetime.now(pytz.UTC).strftime('%Y-%m-%d %H:%M:%S UTC')}"
+        current_time = datetime.now(pytz.UTC).strftime('%Y-%m-%d %H:%M:%S UTC')
+        test_message = f"Test tweet from Rosicrucian Bot - Initiated by {CURRENT_USER} at {current_time}"
         response = client.create_tweet(text=test_message)
         logger.info(f"Test tweet sent successfully: {test_message}")
         return {"status": "success", "message": "Test tweet sent successfully", "tweet_text": test_message}
@@ -194,34 +220,46 @@ def test_tweet():
 
 @app.route('/post-now')
 def post_now():
-    """Endpoint to trigger an immediate tweet"""
+    """Trigger an immediate tweet"""
     success = post_fact()
     return {"status": "success" if success else "error"}
 
+@app.route('/schedule')
+def view_schedule():
+    """View the next scheduled tweet times"""
+    next_times = get_next_scheduled_times()
+    return {
+        "current_time": datetime.now(pytz.UTC).strftime('%Y-%m-%d %H:%M:%S UTC'),
+        "next_scheduled_tweets": next_times,
+        "schedule_interval": "Every 6 hours"
+    }
+
 if __name__ == '__main__':
-    # Verify credentials before starting
+    # Development server warning
+    if IS_DEVELOPMENT:
+        print("\n⚠️  WARNING: This is a development server.")
+        print("   Do not use it in a production deployment.")
+        print("   Use a production WSGI server instead.\n")
+
+    # Verify credentials without posting a tweet
     if not verify_credentials():
         logger.error("Failed to verify Twitter credentials. Exiting.")
         exit(1)
-
-    # Post a fact immediately on startup
-    logger.info("Posting initial tweet...")
-    post_fact()
 
     # Start the schedule in a separate thread
     schedule_thread = threading.Thread(target=run_schedule)
     schedule_thread.daemon = True
     schedule_thread.start()
-    logger.info("Schedule thread started")
+    logger.info("Schedule thread started - Tweets will be posted every 6 hours")
 
     # Get port from environment variable or use default
     port = int(os.getenv('PORT', 8080))
     host = os.getenv('HOST', '0.0.0.0')
 
-    logger.info(f"Starting server on {host}:{port}")
-    app.run(host=host, port=port)
-
-
+    logger.info(f"Starting development server on {host}:{port}")
+    
+    # Run the Flask app in development mode
+    app.run(host=host, port=port, debug=True)
 
 
 
