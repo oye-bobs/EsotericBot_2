@@ -1,5 +1,5 @@
-tweepy==4.10.1
-python-dotenv==0.19.1
-schedule==1.2.0
-pytz==2023.3
-
+flask
+tweepy
+python-dotenv
+schedule
+pytz
