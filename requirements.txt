@@ -2,5 +2,5 @@ flask
 tweepy
 python-dotenv
 schedule
-pytz
 gunicorn
+pytz
