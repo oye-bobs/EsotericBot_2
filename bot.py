@@ -20,13 +20,12 @@ logger = logging.getLogger(__name__)
 # Initialize Flask App
 app = Flask(__name__)
 
-# Load environment variables from .env file
+# Load environment variables
 load_dotenv()
 
 # Current user and time information
 CURRENT_USER = 'oye-bobs'
-CURRENT_TIME = '2024-12-23 15:29:47'
-IS_DEVELOPMENT = False  # Changed to False for production mode
+CURRENT_TIME = '2024-12-23 15:37:12'
 
 # Verify environment variables are loaded
 required_env_vars = [
@@ -54,8 +53,7 @@ except Exception as e:
     logger.error(f"Failed to initialize Twitter client: {e}")
     raise
 
-# Your existing facts list remains the same
- # Predefined facts
+# Your facts list
 facts = ["The movement emerged in the early 17th century through three manifestos: the Fama Fraternitatis, Confessio Fraternitatis, and the Chymical Wedding of Christian Rosenkreutz.",
     "The Rose Cross symbolizes both spiritual unfolding (the rose) and the sacrifice of physical existence (the cross).",
     "The rose represents divine love and the unfolding of consciousness, while the cross embodies earthly trials.",
@@ -161,7 +159,6 @@ schedule.every(6).hours.do(post_fact)
 
 def get_next_scheduled_times():
     """Get the next 4 scheduled tweet times"""
-    now = datetime.now(pytz.UTC)
     next_times = []
     for i in range(4):
         next_run = schedule.next_run()
@@ -177,7 +174,7 @@ def run_schedule():
             time.sleep(1)
         except Exception as e:
             logger.error(f"Error in schedule loop: {e}")
-            time.sleep(60)  # Wait a minute before retrying
+            time.sleep(60)
 
 # Flask routes
 @app.route('/')
@@ -211,36 +208,26 @@ def post_now():
     success = post_fact()
     return {"status": "success" if success else "error"}
 
-@app.route('/schedule')
-def view_schedule():
-    """View the next scheduled tweet times"""
-    next_times = get_next_scheduled_times()
-    return {
-        "current_time": datetime.now(pytz.UTC).strftime('%Y-%m-%d %H:%M:%S UTC'),
-        "next_scheduled_tweets": next_times,
-        "schedule_interval": "Every 6 hours"
-    }
-
-if __name__ == '__main__':
-    # Verify credentials without posting a tweet
+def create_app():
+    """Create and configure the Flask application"""
     if not verify_credentials():
         logger.error("Failed to verify Twitter credentials. Exiting.")
-        exit(1)
+        return None
 
     # Start the schedule in a separate thread
     schedule_thread = threading.Thread(target=run_schedule)
     schedule_thread.daemon = True
     schedule_thread.start()
     logger.info("Schedule thread started - Tweets will be posted every 6 hours")
-
-    # Get port from environment variable or use default
-    port = int(os.getenv('PORT', 10000))  # Using port 10000 as specified
-    host = os.getenv('HOST', '0.0.0.0')
-
-    logger.info(f"Starting server on {host}:{port}")
     
-    # Run the Flask app in production mode
-    app.run(host=host, port=port, debug=False)  # Changed debug to False
+    return app
 
- 
+# Create the application instance
+app = create_app()
+
+# This is for Render
+port = int(os.environ.get("PORT", 10000))
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=port)
 
