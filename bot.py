@@ -9,7 +9,6 @@ import pytz
 from flask import Flask
 import logging
 import threading
-import warnings
 
 # Set up logging
 logging.basicConfig(
@@ -17,13 +16,6 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
-
-# Development server warning
-warnings.warn(
-    "This is a development server. Do not use it in a production deployment. "
-    "Use a production WSGI server instead.",
-    RuntimeWarning
-)
 
 # Initialize Flask App
 app = Flask(__name__)
@@ -33,11 +25,8 @@ load_dotenv()
 
 # Current user and time information
 CURRENT_USER = 'oye-bobs'
-CURRENT_TIME = '2024-12-23 14:54:27'
-IS_DEVELOPMENT = True
-
-if IS_DEVELOPMENT:
-    logger.warning("Running in development mode - not recommended for production!")
+CURRENT_TIME = '2024-12-23 15:29:47'
+IS_DEVELOPMENT = False  # Changed to False for production mode
 
 # Verify environment variables are loaded
 required_env_vars = [
@@ -65,7 +54,8 @@ except Exception as e:
     logger.error(f"Failed to initialize Twitter client: {e}")
     raise
 
-  # Predefined facts
+# Your existing facts list remains the same
+ # Predefined facts
 facts = ["The movement emerged in the early 17th century through three manifestos: the Fama Fraternitatis, Confessio Fraternitatis, and the Chymical Wedding of Christian Rosenkreutz.",
     "The Rose Cross symbolizes both spiritual unfolding (the rose) and the sacrifice of physical existence (the cross).",
     "The rose represents divine love and the unfolding of consciousness, while the cross embodies earthly trials.",
@@ -141,7 +131,6 @@ facts = ["The movement emerged in the early 17th century through three manifesto
     "The rose symbolizes not only spiritual enlightenment but also the unfolding of consciousness in stages, from bud to bloom.",
     "Initiates often work with sacred texts and symbols, believing they contain hidden knowledge that can guide the soul toward enlightenment.",
     "Alchemy is both a literal and metaphorical process of turning base materials into spiritual gold, signifying the transformation of the self."] # Your existing facts list
-
 def post_fact():
     """Post a random fact to Twitter with proper error handling"""
     fact = random.choice(facts)
@@ -196,13 +185,11 @@ def home():
     next_times = get_next_scheduled_times()
     return {
         "status": "running",
-        "environment": "development" if IS_DEVELOPMENT else "production",
         "bot_user": CURRENT_USER,
         "initialization_time": CURRENT_TIME,
         "next_scheduled_tweets": next_times,
         "current_time": datetime.now(pytz.UTC).strftime('%Y-%m-%d %H:%M:%S UTC'),
-        "schedule": "Every 6 hours",
-        "warning": "Development server - Not for production use" if IS_DEVELOPMENT else ""
+        "schedule": "Every 6 hours"
     }
 
 @app.route('/test-tweet')
@@ -235,12 +222,6 @@ def view_schedule():
     }
 
 if __name__ == '__main__':
-    # Development server warning
-    if IS_DEVELOPMENT:
-        print("\n⚠️  WARNING: This is a development server.")
-        print("   Do not use it in a production deployment.")
-        print("   Use a production WSGI server instead.\n")
-
     # Verify credentials without posting a tweet
     if not verify_credentials():
         logger.error("Failed to verify Twitter credentials. Exiting.")
@@ -253,13 +234,13 @@ if __name__ == '__main__':
     logger.info("Schedule thread started - Tweets will be posted every 6 hours")
 
     # Get port from environment variable or use default
-    port = int(os.getenv('PORT', 8080))
+    port = int(os.getenv('PORT', 10000))  # Using port 10000 as specified
     host = os.getenv('HOST', '0.0.0.0')
 
-    logger.info(f"Starting development server on {host}:{port}")
+    logger.info(f"Starting server on {host}:{port}")
     
-    # Run the Flask app in development mode
-    app.run(host=host, port=port, debug=True)
+    # Run the Flask app in production mode
+    app.run(host=host, port=port, debug=False)  # Changed debug to False
 
-
+ 
 
