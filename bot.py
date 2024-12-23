@@ -23,6 +23,10 @@ app = Flask(__name__)
 # Load environment variables from .env file
 load_dotenv()
 
+# Current user and time information
+CURRENT_USER = 'oye-bobs'
+CURRENT_TIME = '2024-12-23 13:25:41'
+
 # Verify environment variables are loaded
 required_env_vars = [
     'TWITTER_API_KEY',
@@ -49,7 +53,7 @@ except Exception as e:
     logger.error(f"Failed to initialize Twitter client: {e}")
     raise
 
-# Your facts list remains the same
+# Predefined facts
 facts = ["The movement emerged in the early 17th century through three manifestos: the Fama Fraternitatis, Confessio Fraternitatis, and the Chymical Wedding of Christian Rosenkreutz.",
     "The Rose Cross symbolizes both spiritual unfolding (the rose) and the sacrifice of physical existence (the cross).",
     "The rose represents divine love and the unfolding of consciousness, while the cross embodies earthly trials.",
@@ -144,8 +148,7 @@ def post_fact():
 def verify_credentials():
     """Verify Twitter API credentials"""
     try:
-        # Try to post a test tweet
-        test_tweet = "Test tweet - initializing bot " + datetime.now(pytz.UTC).strftime('%Y-%m-%d %H:%M:%S UTC')
+        test_tweet = f"Bot initialization by {CURRENT_USER} at {CURRENT_TIME} UTC"
         client.create_tweet(text=test_tweet)
         logger.info("Credentials verified successfully")
         return True
@@ -172,9 +175,22 @@ def home():
     last_run = schedule.next_run()
     return {
         "status": "running",
+        "bot_user": CURRENT_USER,
+        "initialization_time": CURRENT_TIME,
         "next_scheduled_tweet": last_run.strftime('%Y-%m-%d %H:%M:%S UTC') if last_run else "Unknown",
         "current_time": datetime.now(pytz.UTC).strftime('%Y-%m-%d %H:%M:%S UTC')
     }
+
+@app.route('/test-tweet')
+def test_tweet():
+    try:
+        test_message = f"Test tweet from Rosicrucian Bot - Initiated by {CURRENT_USER} at {datetime.now(pytz.UTC).strftime('%Y-%m-%d %H:%M:%S UTC')}"
+        response = client.create_tweet(text=test_message)
+        logger.info(f"Test tweet sent successfully: {test_message}")
+        return {"status": "success", "message": "Test tweet sent successfully", "tweet_text": test_message}
+    except Exception as e:
+        logger.error(f"Failed to send test tweet: {e}")
+        return {"status": "error", "message": str(e)}, 500
 
 @app.route('/post-now')
 def post_now():
@@ -198,5 +214,14 @@ if __name__ == '__main__':
     schedule_thread.start()
     logger.info("Schedule thread started")
 
-    # Run the Flask app
-    app.run(host='0.0.0.0', port=5000)
+    # Get port from environment variable or use default
+    port = int(os.getenv('PORT', 8080))
+    host = os.getenv('HOST', '0.0.0.0')
+
+    logger.info(f"Starting server on {host}:{port}")
+    app.run(host=host, port=port)
+
+
+
+
+
