@@ -7,7 +7,15 @@ import schedule
 from datetime import datetime
 import pytz
 from flask import Flask
+import logging
 import threading
+
+# Set up logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 # Initialize Flask App
 app = Flask(__name__)
@@ -15,17 +23,34 @@ app = Flask(__name__)
 # Load environment variables from .env file
 load_dotenv()
 
-# Set up Twitter API v2 credentials
-client = tweepy.Client(
-    consumer_key=os.getenv('TWITTER_API_KEY'),
-    consumer_secret=os.getenv('TWITTER_API_SECRET_KEY'),
-    access_token=os.getenv('TWITTER_ACCESS_TOKEN'),
-    access_token_secret=os.getenv('TWITTER_ACCESS_TOKEN_SECRET')
-)
+# Verify environment variables are loaded
+required_env_vars = [
+    'TWITTER_API_KEY',
+    'TWITTER_API_SECRET_KEY',
+    'TWITTER_ACCESS_TOKEN',
+    'TWITTER_ACCESS_TOKEN_SECRET'
+]
 
-# Predefined facts
-facts = [
-    "The movement emerged in the early 17th century through three manifestos: the Fama Fraternitatis, Confessio Fraternitatis, and the Chymical Wedding of Christian Rosenkreutz.",
+for var in required_env_vars:
+    if not os.getenv(var):
+        logger.error(f"Missing required environment variable: {var}")
+        raise RuntimeError(f"Missing required environment variable: {var}")
+
+# Set up Twitter API v2 credentials
+try:
+    client = tweepy.Client(
+        consumer_key=os.getenv('TWITTER_API_KEY'),
+        consumer_secret=os.getenv('TWITTER_API_SECRET_KEY'),
+        access_token=os.getenv('TWITTER_ACCESS_TOKEN'),
+        access_token_secret=os.getenv('TWITTER_ACCESS_TOKEN_SECRET')
+    )
+    logger.info("Twitter client initialized successfully")
+except Exception as e:
+    logger.error(f"Failed to initialize Twitter client: {e}")
+    raise
+
+# Your facts list remains the same
+facts = ["The movement emerged in the early 17th century through three manifestos: the Fama Fraternitatis, Confessio Fraternitatis, and the Chymical Wedding of Christian Rosenkreutz.",
     "The Rose Cross symbolizes both spiritual unfolding (the rose) and the sacrifice of physical existence (the cross).",
     "The rose represents divine love and the unfolding of consciousness, while the cross embodies earthly trials.",
     "The founder of the order, Christian Rosenkreutz, is said to have lived to 106, embodying the virtues of spiritual longevity.",
@@ -99,39 +124,79 @@ facts = [
     "The Great Work involves the soul’s journey towards its own divinity, refining the self through continual spiritual practice.",
     "The rose symbolizes not only spiritual enlightenment but also the unfolding of consciousness in stages, from bud to bloom.",
     "Initiates often work with sacred texts and symbols, believing they contain hidden knowledge that can guide the soul toward enlightenment.",
-    "Alchemy is both a literal and metaphorical process of turning base materials into spiritual gold, signifying the transformation of the self."
-]
+    "Alchemy is both a literal and metaphorical process of turning base materials into spiritual gold, signifying the transformation of the self."] # Your existing facts list
 
-
-# Define the task to post a random fact
 def post_fact():
+    """Post a random fact to Twitter with proper error handling"""
     fact = random.choice(facts)
     try:
-        client.create_tweet(text=fact)
-        print(f"Tweeted: {fact}")
+        response = client.create_tweet(text=fact)
+        current_time = datetime.now(pytz.UTC).strftime('%Y-%m-%d %H:%M:%S UTC')
+        logger.info(f"Tweet posted successfully at {current_time}: {fact[:50]}...")
+        return True
+    except tweepy.TweepyException as te:
+        logger.error(f"Twitter API error: {te}")
+        return False
     except Exception as e:
-        print(f"Error posting fact: {e}")
+        logger.error(f"Unexpected error while posting tweet: {e}")
+        return False
+
+def verify_credentials():
+    """Verify Twitter API credentials"""
+    try:
+        # Try to post a test tweet
+        test_tweet = "Test tweet - initializing bot " + datetime.now(pytz.UTC).strftime('%Y-%m-%d %H:%M:%S UTC')
+        client.create_tweet(text=test_tweet)
+        logger.info("Credentials verified successfully")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to verify credentials: {e}")
+        return False
 
 # Schedule the task to run every hour
 schedule.every().hour.at(":00").do(post_fact)
 
-# Function to run the scheduled tasks in the background
+# Function to run the scheduled tasks
 def run_schedule():
     while True:
-        schedule.run_pending()
-        time.sleep(1)
+        try:
+            schedule.run_pending()
+            time.sleep(1)
+        except Exception as e:
+            logger.error(f"Error in schedule loop: {e}")
+            time.sleep(60)  # Wait a minute before retrying
 
-# Flask route to check if the app is running
+# Flask routes
 @app.route('/')
 def home():
-    return "Rosicrucian Twitter Bot is running!"
+    last_run = schedule.next_run()
+    return {
+        "status": "running",
+        "next_scheduled_tweet": last_run.strftime('%Y-%m-%d %H:%M:%S UTC') if last_run else "Unknown",
+        "current_time": datetime.now(pytz.UTC).strftime('%Y-%m-%d %H:%M:%S UTC')
+    }
 
-# Start the Flask app and schedule tasks
+@app.route('/post-now')
+def post_now():
+    """Endpoint to trigger an immediate tweet"""
+    success = post_fact()
+    return {"status": "success" if success else "error"}
+
 if __name__ == '__main__':
+    # Verify credentials before starting
+    if not verify_credentials():
+        logger.error("Failed to verify Twitter credentials. Exiting.")
+        exit(1)
+
+    # Post a fact immediately on startup
+    logger.info("Posting initial tweet...")
+    post_fact()
+
     # Start the schedule in a separate thread
     schedule_thread = threading.Thread(target=run_schedule)
     schedule_thread.daemon = True
     schedule_thread.start()
+    logger.info("Schedule thread started")
 
     # Run the Flask app
     app.run(host='0.0.0.0', port=5000)
