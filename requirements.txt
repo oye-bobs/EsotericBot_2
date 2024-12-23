@@ -3,3 +3,4 @@ tweepy
 python-dotenv
 schedule
 pytz
+gunicorn
