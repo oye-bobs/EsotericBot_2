@@ -6,14 +6,14 @@ import time
 import schedule
 from datetime import datetime
 import pytz
-from flask import Flask
+from flask import Flask, jsonify
 import logging
 import threading
 
 # Set up logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(levelname)s - [%(threadName)s] - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
@@ -25,20 +25,7 @@ load_dotenv()
 
 # Current user and time information
 CURRENT_USER = 'oye-bobs'
-CURRENT_TIME = '2024-12-23 15:37:12'
-
-# Verify environment variables are loaded
-required_env_vars = [
-    'TWITTER_API_KEY',
-    'TWITTER_API_SECRET_KEY',
-    'TWITTER_ACCESS_TOKEN',
-    'TWITTER_ACCESS_TOKEN_SECRET'
-]
-
-for var in required_env_vars:
-    if not os.getenv(var):
-        logger.error(f"Missing required environment variable: {var}")
-        raise RuntimeError(f"Missing required environment variable: {var}")
+CURRENT_TIME = '2024-12-24 09:45:02'
 
 # Set up Twitter API v2 credentials
 try:
@@ -129,26 +116,55 @@ facts = ["The movement emerged in the early 17th century through three manifesto
     "The rose symbolizes not only spiritual enlightenment but also the unfolding of consciousness in stages, from bud to bloom.",
     "Initiates often work with sacred texts and symbols, believing they contain hidden knowledge that can guide the soul toward enlightenment.",
     "Alchemy is both a literal and metaphorical process of turning base materials into spiritual gold, signifying the transformation of the self."] # Your existing facts list
+
+
+last_tweet_time = None
+next_scheduled_time = None
+used_facts = set()  # Track used facts
+
+def get_random_fact():
+    """Get a random fact, trying to avoid repetition"""
+    global used_facts
+    
+    # If all facts have been used, reset the tracking
+    if len(used_facts) >= len(facts):
+        used_facts.clear()
+        logger.info("Reset used facts tracking - all facts have been used")
+    
+    # Get available facts
+    available_facts = [f for f in facts if f not in used_facts]
+    
+    # Select a random fact
+    fact = random.choice(available_facts)
+    used_facts.add(fact)
+    
+    logger.info(f"Selected fact {len(used_facts)}/{len(facts)} from pool")
+    return fact
+
 def post_fact():
     """Post a random fact to Twitter with proper error handling"""
-    fact = random.choice(facts)
+    global last_tweet_time, next_scheduled_time
+    
+    fact = get_random_fact()
     try:
         response = client.create_tweet(text=fact)
         current_time = datetime.now(pytz.UTC).strftime('%Y-%m-%d %H:%M:%S UTC')
-        logger.info(f"Tweet posted successfully at {current_time}: {fact[:50]}...")
+        last_tweet_time = current_time
+        next_scheduled_time = (datetime.now(pytz.UTC) + schedule.jobs[0].period).strftime('%Y-%m-%d %H:%M:%S UTC')
+        
+        logger.info(f"Tweet posted successfully at {current_time}")
+        logger.info(f"Tweet content: {fact[:50]}...")
+        logger.info(f"Next scheduled tweet at: {next_scheduled_time}")
         return True
-    except tweepy.TweepyException as te:
-        logger.error(f"Twitter API error: {te}")
-        return False
     except Exception as e:
-        logger.error(f"Unexpected error while posting tweet: {e}")
+        logger.error(f"Failed to post tweet: {str(e)}")
         return False
 
 def verify_credentials():
-    """Verify Twitter API credentials without posting a tweet"""
+    """Verify Twitter API credentials"""
     try:
         user = client.get_me()
-        logger.info("Credentials verified successfully")
+        logger.info(f"Credentials verified successfully for user: {user.data.username}")
         return True
     except Exception as e:
         logger.error(f"Failed to verify credentials: {e}")
@@ -156,22 +172,15 @@ def verify_credentials():
 
 # Schedule tweets every 6 hours
 schedule.every(6).hours.do(post_fact)
-
-def get_next_scheduled_times():
-    """Get the next 4 scheduled tweet times"""
-    next_times = []
-    for i in range(4):
-        next_run = schedule.next_run()
-        if next_run:
-            next_times.append(next_run.strftime('%Y-%m-%d %H:%M:%S UTC'))
-    return next_times
+logger.info("Scheduled task: Tweet every 6 hours")
 
 def run_schedule():
     """Run scheduled tasks with error handling"""
+    logger.info("Schedule thread starting...")
     while True:
         try:
             schedule.run_pending()
-            time.sleep(1)
+            time.sleep(60)
         except Exception as e:
             logger.error(f"Error in schedule loop: {e}")
             time.sleep(60)
@@ -179,15 +188,24 @@ def run_schedule():
 # Flask routes
 @app.route('/')
 def home():
-    next_times = get_next_scheduled_times()
-    return {
-        "status": "running",
-        "bot_user": CURRENT_USER,
-        "initialization_time": CURRENT_TIME,
-        "next_scheduled_tweets": next_times,
-        "current_time": datetime.now(pytz.UTC).strftime('%Y-%m-%d %H:%M:%S UTC'),
-        "schedule": "Every 6 hours"
-    }
+    try:
+        next_run = schedule.next_run()
+        next_run_str = next_run.strftime('%Y-%m-%d %H:%M:%S UTC') if next_run else "Unknown"
+        
+        return jsonify({
+            "status": "running",
+            "bot_user": CURRENT_USER,
+            "initialization_time": CURRENT_TIME,
+            "last_tweet_time": last_tweet_time,
+            "next_scheduled_tweet": next_run_str,
+            "current_time": datetime.now(pytz.UTC).strftime('%Y-%m-%d %H:%M:%S UTC'),
+            "schedule_interval": "Every 6 hours",
+            "facts_used": f"{len(used_facts)}/{len(facts)}",
+            "credentials_status": "Verified" if verify_credentials() else "Failed"
+        })
+    except Exception as e:
+        logger.error(f"Error in home route: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/test-tweet')
 def test_tweet():
@@ -197,16 +215,21 @@ def test_tweet():
         test_message = f"Test tweet from Rosicrucian Bot - Initiated by {CURRENT_USER} at {current_time}"
         response = client.create_tweet(text=test_message)
         logger.info(f"Test tweet sent successfully: {test_message}")
-        return {"status": "success", "message": "Test tweet sent successfully", "tweet_text": test_message}
+        return jsonify({"status": "success", "message": "Test tweet sent successfully", "tweet_text": test_message})
     except Exception as e:
         logger.error(f"Failed to send test tweet: {e}")
-        return {"status": "error", "message": str(e)}, 500
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/post-now')
 def post_now():
     """Trigger an immediate tweet"""
     success = post_fact()
-    return {"status": "success" if success else "error"}
+    return jsonify({
+        "status": "success" if success else "error",
+        "last_tweet_time": last_tweet_time,
+        "next_scheduled_tweet": next_scheduled_time,
+        "facts_used": f"{len(used_facts)}/{len(facts)}"
+    })
 
 def create_app():
     """Create and configure the Flask application"""
@@ -215,7 +238,7 @@ def create_app():
         return None
 
     # Start the schedule in a separate thread
-    schedule_thread = threading.Thread(target=run_schedule)
+    schedule_thread = threading.Thread(target=run_schedule, name="ScheduleThread")
     schedule_thread.daemon = True
     schedule_thread.start()
     logger.info("Schedule thread started - Tweets will be posted every 6 hours")
@@ -225,9 +248,6 @@ def create_app():
 # Create the application instance
 app = create_app()
 
-# This is for Render
-port = int(os.environ.get("PORT", 10000))
-
 if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
-
